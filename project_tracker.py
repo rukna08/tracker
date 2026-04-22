@@ -1,5 +1,5 @@
 import tkinter as tk
-import json, os, time, math
+import json, os, time, math, subprocess, webbrowser
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -385,6 +385,196 @@ class GearBtn(tk.Canvas):
         if self._cmd: self._cmd()
 
 
+# ── Launch arrow button ───────────────────────────────────────────────────────
+
+def draw_launch_arrow(canvas, cx, cy, r, color):
+    """Draw a diagonal arrow-up-right icon like the provided image."""
+    # Arrow shaft + head pointing top-right
+    # We draw a thick arrow as a polygon
+    s = r  # scale
+    # Arrow points: diagonal arrow NE direction
+    pts = [
+        # tail-left
+        cx - int(s*0.55), cy + int(s*0.20),
+        cx - int(s*0.55), cy + int(s*0.55),
+        cx - int(s*0.20), cy + int(s*0.55),
+        # bottom-right notch
+        cx + int(s*0.15), cy + int(s*0.10),
+        # arrowhead right
+        cx + int(s*0.55), cy - int(s*0.55),
+        # arrowhead top
+        cx - int(s*0.10), cy - int(s*0.15),
+    ]
+    canvas.create_polygon(pts, fill=color, outline="", smooth=False)
+
+
+class LaunchBtn(tk.Canvas):
+    """Small diagonal-arrow launch button."""
+    def __init__(self, parent, cmd, size=20, bg=None):
+        bg = bg or T["C_BTN"]
+        super().__init__(parent, width=size, height=size,
+                         bg=bg, highlightthickness=0, cursor="hand2")
+        self._cmd   = cmd
+        self._size  = size
+        self._bg    = bg
+        self._draw(False)
+        self.bind("<Enter>",    lambda e: self._draw(True))
+        self.bind("<Leave>",    lambda e: self._draw(False))
+        self.bind("<Button-1>", lambda e: self._click())
+
+    def _draw(self, hover):
+        self.delete("all")
+        s  = self._size
+        bg = T["C_BTN_H"] if hover else self._bg
+        self.configure(bg=bg)
+        color = T["C_ACCENT"] if hover else T["C_TEXT_DIM"]
+        draw_launch_arrow(self, s // 2, s // 2, s // 2 - 2, color)
+
+    def _click(self):
+        self._draw(False)
+        if self._cmd: self._cmd()
+
+
+# ── Resources dialog ──────────────────────────────────────────────────────────
+
+class ResourcesDialog(tk.Toplevel):
+    """Manage URLs and EXE paths for a project."""
+    def __init__(self, parent, proj):
+        super().__init__(parent)
+        self.title(f"Resources — {proj['name']}")
+        self.configure(bg=T["C_BG"])
+        self.resizable(False, False)
+        self.grab_set(); self.transient(parent)
+
+        self._proj     = proj
+        self._entries  = []   # list of (type_var, path_var, row_frame)
+
+        tk.Frame(self, bg=T["C_ACCENT"], height=2).pack(fill="x")
+
+        # Header
+        hdr = tk.Frame(self, bg=T["C_HEADER"], padx=14, pady=8)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="Launch Resources", fg=T["C_TEXT_HEAD"],
+                 bg=T["C_HEADER"], font=T["FN"]).pack(side="left")
+        tk.Label(hdr, text="Opened automatically when you Start this project",
+                 fg=T["C_TEXT_DIM"], bg=T["C_HEADER"], font=T["FT"]).pack(side="left", padx=(10,0))
+        tk.Frame(self, bg=T["C_BORDER"], height=1).pack(fill="x")
+
+        # Column headers
+        ch = tk.Frame(self, bg=T["C_BG"], padx=14, pady=4)
+        ch.pack(fill="x")
+        tk.Label(ch, text="Type",  fg=T["C_TEXT_DIM"], bg=T["C_BG"],
+                 font=T["FT"], width=6,  anchor="w").pack(side="left")
+        tk.Label(ch, text="URL or file path", fg=T["C_TEXT_DIM"], bg=T["C_BG"],
+                 font=T["FT"], anchor="w").pack(side="left", padx=(8,0))
+        tk.Frame(self, bg=T["C_BORDER"], height=1).pack(fill="x")
+
+        # Scrollable list of resources
+        self._list_frame = tk.Frame(self, bg=T["C_BG"])
+        self._list_frame.pack(fill="both", expand=True, padx=14, pady=6)
+
+        # Load existing
+        for res in proj.get("resources", []):
+            self._add_row(res.get("type", "url"), res.get("path", ""))
+
+        # Bottom bar
+        tk.Frame(self, bg=T["C_BORDER"], height=1).pack(fill="x")
+        bot = tk.Frame(self, bg=T["C_BG"], padx=14, pady=8)
+        bot.pack(fill="x")
+        Btn(bot, "+ Add URL",  lambda: self._add_row("url",  ""), w=90,  h=26,
+            fbg=T["C_BG"]).pack(side="left", padx=(0,6))
+        Btn(bot, "+ Add EXE",  lambda: self._add_row("exe",  ""), w=90,  h=26,
+            fbg=T["C_BG"]).pack(side="left")
+        Btn(bot, "Save",       self._save,                         w=80,  h=26,
+            bg=T["C_ACCENT"], bgh=T["C_ACCENT_LT"], bgp=T["C_ACCENT_DK"],
+            fg=T["C_ADD_FG"], fbg=T["C_BG"]).pack(side="right")
+        Btn(bot, "Cancel",     self.destroy,                       w=80,  h=26,
+            fbg=T["C_BG"]).pack(side="right", padx=(0,6))
+
+        self.bind("<Escape>", lambda e: self.destroy())
+        self.update_idletasks()
+        x = parent.winfo_x() + parent.winfo_width()  // 2 - self.winfo_width()  // 2
+        y = parent.winfo_y() + parent.winfo_height() // 2 - self.winfo_height() // 2
+        self.geometry(f"+{x}+{y}")
+        parent.wait_window(self)
+
+    def _add_row(self, rtype="url", path=""):
+        row = tk.Frame(self._list_frame, bg=T["C_BG"])
+        row.pack(fill="x", pady=2)
+
+        # Type badge
+        type_var = tk.StringVar(value=rtype)
+        type_lbl = tk.Label(row, textvariable=type_var,
+                            fg=T["C_ACCENT"] if rtype=="url" else T["C_YELLOW"],
+                            bg=T["C_HEADER"], font=T["FT"],
+                            width=5, anchor="center", padx=4, pady=2)
+        type_lbl.pack(side="left", padx=(0,6))
+
+        # Toggle URL/EXE
+        def toggle(tv=type_var, lbl=type_lbl):
+            v = "exe" if tv.get() == "url" else "url"
+            tv.set(v)
+            lbl.configure(fg=T["C_ACCENT"] if v=="url" else T["C_YELLOW"])
+        type_lbl.configure(cursor="hand2")
+        type_lbl.bind("<Button-1>", lambda e: toggle())
+
+        # Path entry
+        path_var = tk.StringVar(value=path)
+        entry = tk.Entry(row, textvariable=path_var,
+                         bg=T["C_HEADER"], fg=T["C_TEXT"],
+                         insertbackground=T["C_ACCENT"],
+                         relief="flat", font=T["FS"],
+                         bd=0, highlightthickness=1,
+                         highlightcolor=T["C_ACCENT"],
+                         highlightbackground=T["C_BORDER"],
+                         width=42)
+        entry.pack(side="left", ipady=4, padx=(0,6))
+
+        # Browse button (for EXE)
+        def browse(pv=path_var, tv=type_var):
+            from tkinter import filedialog
+            if tv.get() == "exe":
+                f = filedialog.askopenfilename(
+                    title="Select executable",
+                    filetypes=[("Executables","*.exe *.bat *.cmd *.lnk"),("All files","*.*")])
+            else:
+                f = ""
+            if f: pv.set(f)
+        Btn(row, "…", lambda: browse(), w=24, h=26,
+            fbg=T["C_BG"], font=T["FT"]).pack(side="left", padx=(0,4))
+
+        # Remove
+        def remove(r=row, entry_tuple=None):
+            r.destroy()
+            self._entries = [(tv, pv, rf) for tv, pv, rf in self._entries
+                             if rf.winfo_exists()]
+        rm_btn = Btn(row, "×", None, w=22, h=26,
+                     bg=T["C_BTN"], bgh=T["C_RED_H"], bgp=T["C_RED_P"],
+                     fg=T["C_TEXT_DIM"], font=(T["FN"][0],11,"bold"), fbg=T["C_BG"])
+        rm_btn.pack(side="left")
+        rm_btn._cmd = lambda r=row: remove(r)
+        rm_btn._l.configure(cursor="hand2")
+
+        self._entries.append((type_var, path_var, row))
+        self.update_idletasks()
+
+    def _save(self):
+        resources = []
+        for tv, pv, row in self._entries:
+            if row.winfo_exists():
+                path = pv.get().strip()
+                if path:
+                    resources.append({"type": tv.get(), "path": path})
+        self._proj["resources"] = resources
+        save_data_ref()   # save via global reference
+        self.destroy()
+
+
+def save_data_ref():
+    """Called from dialog — uses the global app instance."""
+    pass   # overridden at app init
+
+
 # ── Smooth scrolling canvas ───────────────────────────────────────────────────
 
 class SmoothCanvas(tk.Canvas):
@@ -734,8 +924,9 @@ class Tracker(tk.Tk):
         self._expanded = set()
         self._refs     = {}
 
-        global T
+        global T, save_data_ref
         T = dict(THEMES.get(self._settings.get("theme","default"), THEMES["default"]))
+        save_data_ref = lambda: save_data(self.projects)
 
         self._build_ui()
         self._render()
@@ -963,6 +1154,10 @@ class Tracker(tk.Tk):
         bf2 = tk.Frame(bf, bg=bbg); bf2.pack(pady=6)
         hw += [bf, bf2]
 
+        # Launch resources button (arrow icon)
+        LaunchBtn(bf2, lambda i=idx: self._open_resources(i),
+                  size=22, bg=bbg).pack(side="left", padx=(0,6))
+
         if active:
             Btn(bf2, "End", lambda i=idx: self._end(i), w=42, h=22,
                 bg=T["C_RED"], bgh=T["C_RED_H"], bgp=T["C_RED_P"],
@@ -1046,7 +1241,40 @@ class Tracker(tk.Tk):
 
     def _start(self, i):
         self.projects[i]["session_start"] = time.time()
-        save_data(self.projects); self._render()
+        save_data(self.projects)
+        self._launch_resources(i)
+        self._render()
+
+    def _launch_resources(self, i):
+        """Open all URLs in Chrome and start all EXEs for project i."""
+        proj = self.projects[i]
+        for res in proj.get("resources", []):
+            path = res.get("path", "").strip()
+            if not path: continue
+            try:
+                if res.get("type") == "url":
+                    # Try Chrome first, fall back to default browser
+                    chrome_paths = [
+                        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+                    ]
+                    opened = False
+                    for cp in chrome_paths:
+                        if os.path.exists(cp):
+                            subprocess.Popen([cp, path])
+                            opened = True
+                            break
+                    if not opened:
+                        webbrowser.open(path)
+                else:
+                    # EXE / bat / lnk
+                    subprocess.Popen([path], shell=True)
+            except Exception:
+                pass
+
+    def _open_resources(self, i):
+        ResourcesDialog(self, self.projects[i])
 
     def _end(self, i):
         proj = self.projects[i]
