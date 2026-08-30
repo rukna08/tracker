@@ -1,0 +1,61 @@
+[
+  {
+    "name": "Game Dev",
+    "last_worked": 1787610976.5265422,
+    "session_start": null,
+    "sessions": [
+      {
+        "start": 1786975438.1136174,
+        "end": 1786977882.9167557
+      },
+      {
+        "start": 1787604004.3040643,
+        "end": 1787610976.5265422
+      }
+    ],
+    "resources": [
+      {
+        "type": "exe",
+        "path": "C:/Users/Ankur/Documents/Godot_v4.4.1-stable_win64.exe"
+      }
+    ]
+  },
+  {
+    "name": "Leetcode",
+    "last_worked": 1787778850.0965147,
+    "session_start": null,
+    "sessions": [
+      {
+        "start": 1787778367.928462,
+        "end": 1787778850.0965147
+      }
+    ],
+    "resources": [
+      {
+        "type": "url",
+        "path": "https://neetcode.io/roadmap"
+      }
+    ]
+  },
+  {
+    "name": "Job Search",
+    "last_worked": 1787949992.8618765,
+    "session_start": null,
+    "sessions": [
+      {
+        "start": 1787344016.2289355,
+        "end": 1787345171.2053263
+      },
+      {
+        "start": 1787949499.020772,
+        "end": 1787949992.8618765
+      }
+    ],
+    "resources": [
+      {
+        "type": "url",
+        "path": "https://in.indeed.com/"
+      }
+    ]
+  }
+]
